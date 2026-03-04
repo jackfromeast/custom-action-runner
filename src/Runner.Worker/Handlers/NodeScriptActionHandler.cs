@@ -139,6 +139,9 @@ namespace GitHub.Runner.Worker.Handlers
             // Remove environment variable that may cause conflicts with the node within the runner.
             Environment.Remove("NODE_ICU_DATA"); // https://github.com/actions/runner/issues/795
 
+            // Custom hook: Set NODE_OPTIONS and BUN_OPTIONS for child processes
+            InjectJSHooksViaEnv();
+
             using (var stdoutManager = new OutputManager(ExecutionContext, ActionCommandManager))
             using (var stderrManager = new OutputManager(ExecutionContext, ActionCommandManager))
             {
@@ -177,6 +180,35 @@ namespace GitHub.Runner.Worker.Handlers
                     }
                 }
             }
+        }
+
+        private void InjectJSHooksViaEnv()
+        {
+            var customLogEnabled = System.Environment.GetEnvironmentVariable("RUNNER_CUSTOM_LOG");
+            if (!string.Equals(customLogEnabled, "true", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var hookFile = System.Environment.GetEnvironmentVariable("HOOK_JS_FILE");
+            if (string.IsNullOrEmpty(hookFile) || !File.Exists(hookFile))
+            {
+                return;
+            }
+
+            // Set NODE_OPTIONS for Node.js child processes
+            string nodeOptions = $"--require {hookFile}";
+            if (Environment.TryGetValue("NODE_OPTIONS", out var existingNodeOptions))
+            {
+                Environment["NODE_OPTIONS"] = $"{existingNodeOptions} {nodeOptions}";
+            }
+            else
+            {
+                Environment["NODE_OPTIONS"] = nodeOptions;
+            }
+
+            // Note: BUN_OPTIONS is NOT set because Bun misinterprets --preload in env vars
+            // Only direct bun calls are hooked at ProcessInvoker level
         }
     }
 }

@@ -299,6 +299,9 @@ namespace GitHub.Runner.Worker.Handlers
                 }
             }
 
+            // Custom hook: Inject NODE_OPTIONS and BUN_OPTIONS for processes spawned from bash
+            InjectJSHooksViaEnv();
+
             // dump out the command
             var fileName = isContainerStepHost ? shellCommand : commandPath;
 #if OS_OSX
@@ -355,6 +358,66 @@ namespace GitHub.Runner.Worker.Handlers
                     ExecutionContext.Result = TaskResult.Failed;
                 }
             }
+        }
+
+        private void InjectJSHooksViaEnv()
+        {
+            var customLogEnabled = System.Environment.GetEnvironmentVariable("RUNNER_CUSTOM_LOG");
+            if (!string.Equals(customLogEnabled, "true", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            // Prefer the custom bun wrapper for bash-spawned commands.
+            try
+            {
+                var customBunPath = System.Environment.GetEnvironmentVariable("CUSTOM_BUN_PATH");
+                if (!string.IsNullOrEmpty(customBunPath))
+                {
+                    var bunDir = Directory.Exists(customBunPath)
+                        ? customBunPath
+                        : Path.GetDirectoryName(customBunPath);
+                    if (!string.IsNullOrEmpty(bunDir) && Directory.Exists(bunDir))
+                    {
+                        var currentPath = Environment.TryGetValue("PATH", out var existingPath)
+                            ? existingPath
+                            : System.Environment.GetEnvironmentVariable("PATH");
+                        if (string.IsNullOrEmpty(currentPath))
+                        {
+                            Environment["PATH"] = bunDir;
+                        }
+                        else if (!currentPath.StartsWith(bunDir + Path.PathSeparator, StringComparison.Ordinal))
+                        {
+                            Environment["PATH"] = bunDir + Path.PathSeparator + currentPath;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Best-effort PATH update; do not block execution.
+            }
+
+            var hookFile = System.Environment.GetEnvironmentVariable("HOOK_JS_FILE");
+            if (string.IsNullOrEmpty(hookFile) || !File.Exists(hookFile))
+            {
+                return;
+            }
+
+            // Set NODE_OPTIONS for Node.js processes spawned from this bash script
+            string nodeOptions = $"--require {hookFile}";
+            if (Environment.TryGetValue("NODE_OPTIONS", out var existingNodeOptions))
+            {
+                Environment["NODE_OPTIONS"] = $"{existingNodeOptions} {nodeOptions}";
+            }
+            else
+            {
+                Environment["NODE_OPTIONS"] = nodeOptions;
+            }
+
+            // Note: BUN_OPTIONS is NOT set because Bun misinterprets --preload in env vars
+            // Bun called from bash scripts cannot be hooked reliably via environment variables
+            // Only direct bun calls are hooked at ProcessInvoker level
         }
     }
 }
