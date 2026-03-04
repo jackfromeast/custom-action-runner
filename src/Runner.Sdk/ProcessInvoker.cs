@@ -293,6 +293,12 @@ namespace GitHub.Runner.Sdk
             _proc.EnableRaisingEvents = true;
             _proc.Exited += ProcessExitedHandler;
 
+            // Custom hook: Inject Node.js/Bun hooks by modifying arguments
+            InjectJSHooks(fileName, ref arguments);
+
+            // Update process arguments if they were modified
+            _proc.StartInfo.Arguments = arguments;
+
             // Start the process.
             _stopWatch = Stopwatch.StartNew();
             _proc.Start();
@@ -900,6 +906,38 @@ namespace GitHub.Runner.Sdk
         [DllImport("libc", SetLastError = true)]
         private static extern int kill(int pid, int sig);
 #endif
+
+        private void InjectJSHooks(string fileName, ref string arguments)
+        {
+            var customLogEnabled = Environment.GetEnvironmentVariable("RUNNER_CUSTOM_LOG");
+            if (!string.Equals(customLogEnabled, "true", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var hookFile = Environment.GetEnvironmentVariable("HOOK_JS_FILE");
+            if (string.IsNullOrEmpty(hookFile) || !File.Exists(hookFile))
+            {
+                return;
+            }
+
+            string fileNameLower = Path.GetFileName(fileName).ToLower();
+
+            // Check if this is a Node.js process
+            if (fileNameLower.Contains("node"))
+            {
+                // Inject --require flag for Node.js
+                string hookArg = $"--require \"{hookFile}\"";
+                arguments = string.IsNullOrEmpty(arguments) ? hookArg : $"{hookArg} {arguments}";
+            }
+            // Check if this is a Bun process
+            else if (fileNameLower.Contains("bun"))
+            {
+                // Inject --preload flag for Bun
+                string hookArg = $"--preload \"{hookFile}\"";
+                arguments = string.IsNullOrEmpty(arguments) ? hookArg : $"{hookArg} {arguments}";
+            }
+        }
     }
 
     public sealed class ProcessExitCodeException : Exception
