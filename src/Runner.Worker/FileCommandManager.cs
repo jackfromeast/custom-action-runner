@@ -11,6 +11,7 @@ namespace GitHub.Runner.Worker
     [ServiceLocator(Default = typeof(FileCommandManager))]
     public interface IFileCommandManager : IRunnerService
     {
+        string FileSuffix { get; }
         void InitializeFiles(IExecutionContext context, ContainerInfo container);
         void ProcessFiles(IExecutionContext context, ContainerInfo container);
 
@@ -21,6 +22,7 @@ namespace GitHub.Runner.Worker
         private const string _folderName = "_runner_file_commands";
         private List<IFileCommandExtension> _commandExtensions;
         private string _fileSuffix = String.Empty;
+        public string FileSuffix => _fileSuffix;
         private string _fileCommandDirectory;
         private Tracing _trace;
 

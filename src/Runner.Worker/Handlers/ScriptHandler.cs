@@ -282,6 +282,8 @@ namespace GitHub.Runner.Worker.Handlers
             {
                 // Script is written to local path (ie host) but executed relative to the StepHost, which may be a container
                 File.WriteAllText(scriptFilePath, contents, encoding);
+
+                EmitScriptTrace(scriptFilePath);
             }
 
             // Prepend PATH
@@ -355,6 +357,33 @@ namespace GitHub.Runner.Worker.Handlers
                     ExecutionContext.Result = TaskResult.Failed;
                 }
             }
+        }
+
+        private void EmitScriptTrace(string scriptFilePath)
+        {
+            try
+            {
+                var traceDir = System.Environment.GetEnvironmentVariable("RUNNER_TRACE_DIR");
+                if (string.IsNullOrEmpty(traceDir))
+                {
+                    return;
+                }
+
+                var traceFile = System.IO.Path.Combine(traceDir, "steps.jsonl");
+                var data = new System.Collections.Generic.Dictionary<string, string>
+                {
+                    ["type"] = "script",
+                    ["step_id"] = ExecutionContext.Id.ToString(),
+                    ["job_id"] = ExecutionContext.Root.Id.ToString(),
+                    ["script_file"] = System.IO.Path.GetFileName(scriptFilePath),
+                };
+                var json = System.Text.Json.JsonSerializer.Serialize(data);
+                lock (typeof(ScriptHandler))
+                {
+                    System.IO.File.AppendAllText(traceFile, json + "\n");
+                }
+            }
+            catch { }
         }
     }
 }

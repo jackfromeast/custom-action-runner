@@ -270,7 +270,7 @@ namespace GitHub.Runner.Worker
                             localActionContainerSetupSteps: localActionContainerSetupSteps);
 
             // Emit resolved step trace if RUNNER_TRACE_DIR is set
-            EmitStepTrace(inputs, environment);
+            EmitStepTrace(inputs, environment, fileCommandManager);
 
             // Print out action details and log telemetry
             handler.PrepareExecution(Stage);
@@ -287,7 +287,7 @@ namespace GitHub.Runner.Worker
 
         }
 
-        private void EmitStepTrace(Dictionary<string, string> inputs, Dictionary<string, string> environment)
+        private void EmitStepTrace(Dictionary<string, string> inputs, Dictionary<string, string> environment, IFileCommandManager fileCommandManager)
         {
             try
             {
@@ -345,6 +345,8 @@ namespace GitHub.Runner.Worker
                     maskedEnv[kv.Key] = HostContext.SecretMasker.MaskSecrets(kv.Value ?? "");
                 }
                 stepData["env"] = maskedEnv;
+
+                stepData["file_commands_suffix"] = fileCommandManager.FileSuffix ?? "";
 
                 var json = System.Text.Json.JsonSerializer.Serialize(stepData);
                 lock (typeof(ActionRunner))
