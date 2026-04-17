@@ -269,6 +269,9 @@ namespace GitHub.Runner.Worker
                             actionDirectory: definition.Directory,
                             localActionContainerSetupSteps: localActionContainerSetupSteps);
 
+            // Emit resolved step trace if RUNNER_TRACE_DIR is set
+            EmitStepTrace(inputs, environment);
+
             // Print out action details and log telemetry
             handler.PrepareExecution(Stage);
 
@@ -282,6 +285,77 @@ namespace GitHub.Runner.Worker
                 fileCommandManager.ProcessFiles(ExecutionContext, ExecutionContext.Global.Container);
             }
 
+        }
+
+        private void EmitStepTrace(Dictionary<string, string> inputs, Dictionary<string, string> environment)
+        {
+            try
+            {
+                var traceDir = System.Environment.GetEnvironmentVariable("RUNNER_TRACE_DIR");
+                if (string.IsNullOrEmpty(traceDir))
+                {
+                    return;
+                }
+
+                System.IO.Directory.CreateDirectory(traceDir);
+                var traceFile = System.IO.Path.Combine(traceDir, "steps.jsonl");
+
+                var stepData = new Dictionary<string, object>
+                {
+                    ["timestamp"] = DateTime.UtcNow.ToString("o"),
+                    ["run_id"] = ExecutionContext.GetGitHubContext("run_id"),
+                    ["plan_id"] = ExecutionContext.Global.Plan?.PlanId.ToString() ?? "",
+                    ["job_id"] = ExecutionContext.Root.Id.ToString(),
+                    ["workflow"] = ExecutionContext.GetGitHubContext("workflow") ?? "",
+                    ["step_id"] = Action.Id.ToString(),
+                    ["step_name"] = DisplayName ?? "",
+                    ["stage"] = Stage.ToString(),
+                };
+
+                var refObj = new Dictionary<string, string>();
+                if (Action.Reference is Pipelines.RepositoryPathReference repoRef)
+                {
+                    refObj["type"] = "repository";
+                    refObj["name"] = repoRef.Name ?? "";
+                    refObj["ref"] = repoRef.Ref ?? "";
+                    refObj["path"] = repoRef.Path ?? "";
+                }
+                else if (Action.Reference is Pipelines.ContainerRegistryReference containerRef)
+                {
+                    refObj["type"] = "container";
+                    refObj["image"] = containerRef.Image ?? "";
+                }
+                else
+                {
+                    refObj["type"] = Action.Reference?.Type.ToString() ?? "unknown";
+                }
+                stepData["reference"] = refObj;
+
+                // Mask secrets but keep structure
+                var maskedInputs = new Dictionary<string, string>();
+                foreach (var kv in inputs)
+                {
+                    maskedInputs[kv.Key] = HostContext.SecretMasker.MaskSecrets(kv.Value ?? "");
+                }
+                stepData["inputs"] = maskedInputs;
+
+                var maskedEnv = new Dictionary<string, string>();
+                foreach (var kv in environment)
+                {
+                    maskedEnv[kv.Key] = HostContext.SecretMasker.MaskSecrets(kv.Value ?? "");
+                }
+                stepData["env"] = maskedEnv;
+
+                var json = System.Text.Json.JsonSerializer.Serialize(stepData);
+                lock (typeof(ActionRunner))
+                {
+                    System.IO.File.AppendAllText(traceFile, json + "\n");
+                }
+            }
+            catch (Exception ex)
+            {
+                Trace.Warning("Failed to emit step trace: {0}", ex.Message);
+            }
         }
 
         /// <summary>
