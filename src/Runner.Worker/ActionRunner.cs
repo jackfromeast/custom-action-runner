@@ -283,8 +283,56 @@ namespace GitHub.Runner.Worker
             finally
             {
                 fileCommandManager.ProcessFiles(ExecutionContext, ExecutionContext.Global.Container);
+                EmitStepOutputTrace(fileCommandManager);
             }
 
+        }
+
+        private void EmitStepOutputTrace(IFileCommandManager fileCommandManager)
+        {
+            try
+            {
+                var traceDir = System.Environment.GetEnvironmentVariable("RUNNER_TRACE_DIR");
+                if (string.IsNullOrEmpty(traceDir))
+                {
+                    return;
+                }
+
+                var suffix = fileCommandManager.FileSuffix;
+                if (string.IsNullOrEmpty(suffix))
+                {
+                    return;
+                }
+
+                var tempDir = HostContext.GetDirectory(WellKnownDirectory.Temp);
+                var fcDir = System.IO.Path.Combine(tempDir, "_runner_file_commands");
+                var outputFile = System.IO.Path.Combine(fcDir, $"set_output_{suffix}");
+
+                if (!System.IO.File.Exists(outputFile))
+                {
+                    return;
+                }
+
+                var fileSize = new System.IO.FileInfo(outputFile).Length;
+                if (fileSize == 0)
+                {
+                    return;
+                }
+
+                var outputsDir = System.IO.Path.Combine(traceDir, "outputs");
+                System.IO.Directory.CreateDirectory(outputsDir);
+
+                var stepId = Action.Id.ToString();
+                var destPath = System.IO.Path.Combine(outputsDir, $"{stepId}.txt");
+
+                var content = System.IO.File.ReadAllText(outputFile);
+                var masked = HostContext.SecretMasker.MaskSecrets(content);
+                System.IO.File.WriteAllText(destPath, masked);
+            }
+            catch (Exception ex)
+            {
+                Trace.Warning("Failed to emit step output trace: {0}", ex.Message);
+            }
         }
 
         private void EmitStepTrace(Dictionary<string, string> inputs, Dictionary<string, string> environment, IFileCommandManager fileCommandManager)

@@ -233,6 +233,25 @@ namespace GitHub.Runner.Worker
                     }
                 }
 
+                var traceDir = System.Environment.GetEnvironmentVariable("RUNNER_TRACE_DIR");
+                if (!string.IsNullOrEmpty(traceDir))
+                {
+                    var summaryDir = System.IO.Path.Combine(traceDir, "summaries");
+                    System.IO.Directory.CreateDirectory(summaryDir);
+                    var traceStepId = context.IsEmbedded
+                        ? context.EmbeddedId.ToString()
+                        : context.Id.ToString();
+                    var destPath = System.IO.Path.Combine(summaryDir, $"{traceStepId}.md");
+                    try
+                    {
+                        System.IO.File.Copy(scrubbedFilePath, destPath, overwrite: true);
+                    }
+                    catch (Exception ex)
+                    {
+                        Trace.Warning($"Failed to copy step summary to trace dir: {ex.Message}");
+                    }
+                }
+
                 var attachmentName = !context.IsEmbedded
                     ? context.Id.ToString()
                     : context.EmbeddedId.ToString();
